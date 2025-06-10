@@ -199,9 +199,9 @@ void handleRoot() {
     <p>Uptime: %02d:%02d:%02d</p>\
     <p>Temperature: %.2f C </p>\
     <p>Humidity: %.2f % </p>\
-    <p>tvoc: %d ppi </p>\
-    <p>eco2: %d ppm </p>\
-    <p>AQI:  %2d </p>\
+    <p>tvoc: %d ppi (Total Volatile Organic Compounds)</p>\
+    <p>eco2: %d ppm (Equivalent CO2: <800 - Good, >1500 - Bad)</p>\
+    <p>AQI:  %1d (UBA Air Quality Index: 1- Excellent, 5 - Unhealthy)</p>\
   </body>\
 </html>",
               hr, min % 60, sec % 60,  sd.temperature, sd.humidity, sd.tvoc , sd.eco2, sd.aoi);
