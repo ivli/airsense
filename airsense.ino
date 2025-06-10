@@ -9,7 +9,12 @@
 #include <Wire.h>
 
 #include <SparkFun_Qwiic_Humidity_AHT20.h>
-#include <SparkFun_ENS160.h>  
+#include <SparkFun_ENS160.h> 
+
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <StreamString.h>
 
 #define ENABLE_DISPLAY
 
@@ -23,7 +28,7 @@
 #include <WiFiUdp.h>
 
 #ifndef STASSID
-#define STASSID "Guest"
+#define STASSID "Keenetic-6012"
 #define STAPSK  "VSUUvJZn"
 #endif
 
@@ -50,7 +55,8 @@ bool setup_wifi()
     static unsigned n = 0;
     delay(500);
     Serial.print(".");
-    if (++n < 10)
+
+    if (++n > 10)
       return false;
   }
 
@@ -118,6 +124,7 @@ void getNTPTime()
     // combine the four bytes (two words) into a long integer
     // this is NTP time (seconds since Jan 1 1900):
     unsigned long secsSince1900 = highWord << 16 | lowWord;
+
     Serial.print("Seconds since Jan 1 1900 = ");
     Serial.println(secsSince1900);
 
@@ -159,6 +166,66 @@ U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(SCL, SDA, U8X8_PIN_NONE);
 const char* const GASSTATSTR = "Gas Sensor Status Flag (0 - Standard, 1 - Warm up, 2 - Initial Start Up): ";
 static bool bWiFi = false;
 
+ESP8266WebServer server(80);
+
+struct SData
+{
+  bool valid;
+  uint8_t aoi;
+  uint16_t tvoc;
+  uint16_t eco2;
+  float temperature;
+  float humidity;
+} sd;
+
+void handleRoot() {
+  int sec = millis() / 1000;
+  int min = sec / 60;
+  int hr = min / 60;
+
+  StreamString temp;
+  temp.reserve(500);  // Preallocate a large chunk to avoid memory fragmentation
+  temp.printf("\
+<html>\
+  <head>\
+    <meta http-equiv='refresh' content='5'/>\
+    <title>Air quality</title>\
+    <style>\
+      body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; Color: #000088; }\
+    </style>\
+  </head>\
+  <body>\
+    <h1>Temperature, Humidity and air quality</h1>\
+    <p>Uptime: %02d:%02d:%02d</p>\
+    <p>Temperature: %.2f C </p>\
+    <p>Humidity: %.2f % </p>\
+    <p>tvoc: %d ppi </p>\
+    <p>eco2: %d ppm </p>\
+    <p>AQI:  %2d </p>\
+  </body>\
+</html>",
+              hr, min % 60, sec % 60,  sd.temperature, sd.humidity, sd.tvoc , sd.eco2, sd.aoi);
+
+  server.send(200, "text/html", temp.c_str());
+}
+
+void handleNotFound() {
+
+  String message = "File Not Found\n\n";
+  message += "URI: ";
+  message += server.uri();
+  message += "\nMethod: ";
+  message += (server.method() == HTTP_GET) ? "GET" : "POST";
+  message += "\nArguments: ";
+  message += server.args();
+  message += "\n";
+
+  for (uint8_t i = 0; i < server.args(); i++) { message += " " + server.argName(i) + ": " + server.arg(i) + "\n"; }
+
+  server.send(404, "text/plain", message);
+
+}
+
 void setup(void)
 {
   Serial.begin(115200);
@@ -166,6 +233,24 @@ void setup(void)
   
   if (!(bWiFi = setup_wifi())){
     Serial.println("Failed to initialise WiFi");
+  } else {
+    Serial.print("Connected to ");
+    Serial.println(ssid);
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    if (MDNS.begin("airsense")) 
+      Serial.println("MDNS responder started"); 
+
+    server.on("/", handleRoot);
+
+    server.on("/inline", []() {
+    server.send(200, "text/plain", "this works as well");
+    });
+
+  server.onNotFound(handleNotFound);
+  server.begin();
+  Serial.println("HTTP server started");
   }
   
 
@@ -197,44 +282,51 @@ void setup(void)
 
 void loop()
 {  
-  if (bWiFi)
-    getNTPTime();
+  //if (bWiFi)
+  //  getNTPTime();
 
   if (humiditySensor.available())
   {
-    float temperature = humiditySensor.getTemperature();
-    float humidity = humiditySensor.getHumidity();
- 
+    sd.temperature = humiditySensor.getTemperature();
+    sd.humidity = humiditySensor.getHumidity();
+
+ #if DUMP_SERIAL
     Serial.print("Temperature: ");
-    Serial.print(temperature, 2);
+    Serial.print(sd.temperature, 2);
     Serial.print(" C\t");
     Serial.print("Humidity: ");
-    Serial.print(humidity, 2);
+    Serial.print(sd.humidity, 2);
     Serial.print("% RH");
     Serial.println();
+#endif
 
 #ifdef ENABLE_DISPLAY
     u8x8.setCursor(0, 2);
     u8x8.print("T: ");
-    u8x8.print(temperature, 2);
+    u8x8.print(sd.temperature, 2);
     u8x8.print(" C\t");
     u8x8.setCursor(0, 3);
     u8x8.print("RH: ");
-    u8x8.print(humidity, 2);
+    u8x8.print(sd.humidity, 2);
     u8x8.print(" %");
 #endif
   }
-    uint8_t aoi = airSensor.getAQI();
-    uint16_t tvoc = airSensor.getTVOC();
-    uint16_t eco2 = airSensor.getECO2();
-    Serial.print("Air Quality Index (1-5) : ");
-    Serial.println(aoi);
-    Serial.print("Total Volatile Organic Compounds: ");
-    Serial.print(tvoc);
-    Serial.println("ppb");
-    Serial.print("CO2 concentration: ");
-    Serial.print(eco2);
-    Serial.println("ppm");
+
+  sd.aoi = airSensor.getAQI();
+  sd.tvoc = airSensor.getTVOC();
+  sd.eco2 = airSensor.getECO2();
+
+#if DUMP_SERIAL
+  Serial.print("Air Quality Index (1-5) : ");
+  Serial.println(sd.aoi);
+  Serial.print("Total Volatile Organic Compounds: ");
+  Serial.print(sd.tvoc);
+  Serial.println("ppb");
+  Serial.print("CO2 concentration: ");
+  Serial.print(sd.eco2);
+  Serial.println("ppm");
+#endif 
+
 /*
     Serial.println("T(C):");
     Serial.println(myENS.getTempCelsius());
@@ -243,22 +335,25 @@ void loop()
     Serial.println(myENS.getRH());
 */
 #ifdef ENABLE_DISPLAY
-    u8x8.setCursor(0, 4);
-    u8x8.print("Status: ");
-    u8x8.print(airSensor.getFlags());
-    u8x8.setCursor(0, 5);
-    u8x8.print("AOI: ");
-    u8x8.print(aoi);
-    u8x8.setCursor(0, 6);
-    u8x8.print("TVOC: ");
-    u8x8.print(tvoc);
-    u8x8.print("ppb");
-    u8x8.setCursor(0, 7);
-    u8x8.print("CO2: ");
-    u8x8.print(eco2);
-    u8x8.print("ppm");
+  u8x8.setCursor(0, 4);
+  u8x8.print("Status: ");
+  u8x8.print(airSensor.getFlags());
+  u8x8.setCursor(0, 5);
+  u8x8.print("AOI: ");
+  u8x8.print(sd.aoi);
+  u8x8.setCursor(0, 6);
+  u8x8.print("TVOC: ");
+  u8x8.print(sd.tvoc);
+  u8x8.print("ppb");
+  u8x8.setCursor(0, 7);
+  u8x8.print("CO2: ");
+  u8x8.print(sd.eco2);
+  u8x8.print("ppm");
 #endif
 
-
-  delay(1000);
+  if (bWiFi){
+    server.handleClient();
+    MDNS.update();
+  }
+  ///delay(1000);
 }
