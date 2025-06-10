@@ -24,7 +24,7 @@
 
 #ifndef STASSID
 #define STASSID "Guest"
-#define STAPSK "********"
+#define STAPSK  "VSUUvJZn"
 #endif
 
 const char* ssid = STASSID;  // your network SSID (name)
@@ -39,7 +39,7 @@ byte packetBuffer[NTP_PACKET_SIZE];  // buffer to hold incoming and outgoing pac
 WiFiUDP udp;
 
 
-void setup_wifi()
+bool setup_wifi()
 {
   Serial.print("Connecting to ");
   Serial.println(ssid);
@@ -47,9 +47,13 @@ void setup_wifi()
   WiFi.begin(ssid, pass);
 
   while (WiFi.status() != WL_CONNECTED) {
+    static unsigned n = 0;
     delay(500);
     Serial.print(".");
+    if (++n < 10)
+      return false;
   }
+
   Serial.println("");
 
   Serial.println("WiFi connected");
@@ -60,6 +64,7 @@ void setup_wifi()
   udp.begin(localPort);
   Serial.print("Local port: ");
   Serial.println(udp.localPort());
+  return true;
 }
 
 
@@ -152,13 +157,17 @@ U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(SCL, SDA, U8X8_PIN_NONE);
 #endif
 
 const char* const GASSTATSTR = "Gas Sensor Status Flag (0 - Standard, 1 - Warm up, 2 - Initial Start Up): ";
+static bool bWiFi = false;
 
 void setup(void)
 {
   Serial.begin(115200);
   Wire.begin();
   
-  setup_wifi();
+  if (!(bWiFi = setup_wifi())){
+    Serial.println("Failed to initialise WiFi");
+  }
+  
 
 #ifdef ENABLE_DISPLAY
   u8x8.begin();
@@ -188,7 +197,9 @@ void setup(void)
 
 void loop()
 {  
-  getNTPTime();
+  if (bWiFi)
+    getNTPTime();
+
   if (humiditySensor.available())
   {
     float temperature = humiditySensor.getTemperature();
