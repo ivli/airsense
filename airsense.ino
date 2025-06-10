@@ -3,7 +3,7 @@
 *  ENS160+AHT21 carbon dioxide CO2 eco2 TVOC air quality and temperature and humidity sensor,
 *  WeMos D1 R2 WiFi uno based ESP8266, and optionally
 *  128X64 I2C SSD1306 12864 LCD Screen Board
-*  both ENS160+AHT21 and SSD1306 have connected to SPI  
+*  both ENS160+AHT21 and SSD1306 have connected via I2C    
 */
 #include <Arduino.h>
 #include <Wire.h>
